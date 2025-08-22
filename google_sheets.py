@@ -323,3 +323,49 @@ class Worksheet:
 
         except Exception as e:
             raise Exception(f"Failed to create named ranges: {e}")
+
+    def cross_join_ranges_to_clipboard(self, range_a: str, range_b: str) -> List[List[Any]]:
+        """
+        Create a sorted cross join of the values contained in two ranges and copy it to the clipboard.
+
+        Args:
+            range_a: First range in A1 notation (e.g., "A2:A10" or "B2:D2")
+            range_b: Second range in A1 notation
+
+        Behavior:
+            - Flattens both ranges to 1D lists (row-major), removing empty cells.
+            - Produces all pairs [a, b] for a in range_a_values and b in range_b_values.
+            - Sorts the pairs ascending by the first column, then the second.
+              Sorting is numeric-aware when possible, otherwise case-insensitive textual.
+            - Copies the resulting n x 2 table to the clipboard as TSV for easy pasting into Google Sheets.
+
+        Returns:
+            The sorted list of pairs with shape n x 2.
+        """
+        def _fetch_1d_list(a1: str) -> List[str]:
+            # Returns flattened non-empty values (as strings) from the provided A1 range.
+            values = self.worksheet_gspread.get(a1) or []
+            flat = [("" if c is None else str(c)) for row in values for c in row]
+            return [v for v in (s.strip() for s in flat) if v != ""]
+
+        def _sort_key(v: Any):
+            s = "" if v is None else str(v).strip()
+            if s == "":
+                return 0, ""
+            try:
+                return 1, float(s)
+            except Exception:
+                return 2, s.casefold()
+
+        list_a = _fetch_1d_list(range_a)
+        list_b = _fetch_1d_list(range_b)
+
+        pairs: List[List[Any]] = []
+        if list_a and list_b:
+            pairs = [[a, b] for a in list_a for b in list_b]
+            pairs.sort(key=lambda p: (_sort_key(p[0]), _sort_key(p[1])))
+
+        # Copy via pandas to clipboard as TSV (n x 2) without headers or index
+        df = pd.DataFrame(pairs)
+        df.to_clipboard(index=False, header=False)
+        return pairs
