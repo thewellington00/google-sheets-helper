@@ -324,6 +324,58 @@ class Worksheet:
         except Exception as e:
             raise Exception(f"Failed to create named ranges: {e}")
 
+    def delete_all_named_ranges(self) -> Dict[str, Any]:
+        """
+        Delete all named ranges in the spreadsheet.
+
+        This uses gspread's delete_named_range(named_range_id) for each
+        named range returned by Spreadsheet.list_named_ranges().
+
+        Returns:
+            A dictionary with:
+                - deleted_ids: list of successfully deleted named range IDs
+                - responses: mapping of named range ID -> API response body
+                - errors: mapping of named range ID -> error message (if deletion failed)
+        """
+        try:
+            named_ranges = self.spreadsheet.spreadsheet_gspread.list_named_ranges() or []
+            responses: Dict[str, Any] = {}
+            errors: Dict[str, str] = {}
+
+            for nr in named_ranges:
+                # Be defensive about the structure returned by gspread
+                nr_id = None
+                if isinstance(nr, dict):
+                    nr_id = (
+                            nr.get("namedRangeId")
+                            or nr.get("named_range_id")
+                            or nr.get("id")
+                            or nr.get("nameId")
+                    )
+                else:
+                    nr_id = (
+                            getattr(nr, "namedRangeId", None)
+                            or getattr(nr, "id", None)
+                    )
+
+                if not nr_id:
+                    # Skip entries we cannot identify
+                    continue
+
+                try:
+                    resp = self.worksheet_gspread.delete_named_range(nr_id)
+                    responses[nr_id] = resp
+                except Exception as e:
+                    errors[nr_id] = str(e)
+
+            return {
+                "deleted_ids": list(responses.keys()),
+                "responses": responses,
+                "errors": errors,
+            }
+        except Exception as e:
+            raise Exception(f"Failed to delete named ranges: {e}")
+
     def cross_join_ranges_to_clipboard(self, range_a: str, range_b: str) -> List[List[Any]]:
         """
         Create a sorted cross join of the values contained in two ranges and copy it to the clipboard.
